@@ -1,0 +1,6 @@
+pandas
+pymysql
+requests
+fastapi
+uvicorn
+lxml

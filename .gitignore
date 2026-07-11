@@ -1,0 +1,10 @@
+.mysql_password
+.env
+covid-frontend/.env
+__pycache__/
+*.pyc
+*.pyo
+.pytest_cache/
+covid-frontend/dist/
+covid-frontend/node_modules/
+data/raw/owid-covid-data.csv
