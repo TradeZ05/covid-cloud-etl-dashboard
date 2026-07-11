@@ -1,0 +1,9 @@
+.git
+.agents
+__pycache__/
+*.pyc
+.env
+.mysql_password
+covid-frontend/node_modules/
+covid-frontend/dist/
+data/raw/owid-covid-data.csv
