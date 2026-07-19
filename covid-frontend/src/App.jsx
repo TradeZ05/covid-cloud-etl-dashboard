@@ -6,7 +6,7 @@ import {
 } from "recharts";
 import {
   Globe2, MapPinned, Activity, Stethoscope, X, Send, Loader2, ShieldAlert,
-  AlertTriangle,
+  AlertTriangle, RadioTower,
 } from "lucide-react";
 import vietnamProvinceGeo from "./data/vietnam-provinces.json";
 
@@ -48,6 +48,17 @@ function formatDateTime(iso) {
     });
   } catch {
     return iso;
+  }
+}
+
+function formatDateOnly(value) {
+  if (!value) return "—";
+  try {
+    return new Date(value).toLocaleDateString("vi-VN", {
+      day: "2-digit", month: "2-digit", year: "numeric",
+    });
+  } catch {
+    return value;
   }
 }
 
@@ -545,6 +556,7 @@ export default function CovidDashboardLive() {
   const [tab, setTab] = useState("global");
   const [chatOpen, setChatOpen] = useState(false);
   const [globalDays, setGlobalDays] = useState(2000);
+  const [selectedDisease, setSelectedDisease] = useState("");
 
   const [summary, setSummary] = useState(null);
   const [topCountries, setTopCountries] = useState(null);
@@ -556,6 +568,11 @@ export default function CovidDashboardLive() {
   const [vnCaseSummary, setVnCaseSummary] = useState(null);
   const [vnCaseTrends, setVnCaseTrends] = useState(null);
   const [vnProvinceCases, setVnProvinceCases] = useState(null);
+  const [outbreakDiseases, setOutbreakDiseases] = useState([]);
+  const [outbreakSummary, setOutbreakSummary] = useState({});
+  const [outbreakTrends, setOutbreakTrends] = useState([]);
+  const [outbreakLocations, setOutbreakLocations] = useState([]);
+  const [outbreakLatest, setOutbreakLatest] = useState([]);
   const [error, setError] = useState(null);
   const [loading, setLoading] = useState(true);
 
@@ -563,6 +580,8 @@ export default function CovidDashboardLive() {
     let cancelled = false;
     setLoading(true);
     setError(null);
+    const diseaseQuery = selectedDisease ? `?disease=${encodeURIComponent(selectedDisease)}` : "";
+    const diseaseJoin = selectedDisease ? `&disease=${encodeURIComponent(selectedDisease)}` : "";
     Promise.all([
       fetchJson("/api/summary/global"),
       fetchJson("/api/countries/top?limit=10"),
@@ -574,8 +593,13 @@ export default function CovidDashboardLive() {
       fetchJson("/api/vietnam/cases/summary").catch(() => ({})),
       fetchJson("/api/vietnam/cases/trends?days=3000").catch(() => []),
       fetchJson("/api/vietnam/cases/provinces?limit=10").catch(() => []),
+      fetchJson("/api/outbreaks/diseases").catch(() => []),
+      fetchJson(`/api/outbreaks/summary${diseaseQuery}`).catch(() => ({})),
+      fetchJson(`/api/outbreaks/trends${diseaseQuery}`).catch(() => []),
+      fetchJson(`/api/outbreaks/locations?limit=10${diseaseJoin}`).catch(() => []),
+      fetchJson(`/api/outbreaks/latest?limit=8${diseaseJoin}`).catch(() => []),
     ])
-      .then(([s, tc, tr, jobs, vns, vnp, vnt, vcs, vct, vpc]) => {
+      .then(([s, tc, tr, jobs, vns, vnp, vnt, vcs, vct, vpc, od, os, ot, ol, oe]) => {
         if (cancelled) return;
         setSummary(s);
         setTopCountries(tc);
@@ -587,11 +611,16 @@ export default function CovidDashboardLive() {
         setVnCaseSummary(vcs);
         setVnCaseTrends(vct);
         setVnProvinceCases(vpc);
+        setOutbreakDiseases(od);
+        setOutbreakSummary(os);
+        setOutbreakTrends(ot);
+        setOutbreakLocations(ol);
+        setOutbreakLatest(oe);
       })
       .catch((e) => !cancelled && setError(e.message))
       .finally(() => !cancelled && setLoading(false));
     return () => { cancelled = true; };
-  }, [globalDays]);
+  }, [globalDays, selectedDisease]);
 
   const todayPoint = trends?.length ? trends[trends.length - 1] : null;
   const cfrOverall = summary && summary.total_cases
@@ -684,6 +713,27 @@ export default function CovidDashboardLive() {
     .sort((a, b) => (b.doses_per_100 || 0) - (a.doses_per_100 || 0))
     .slice(0, 8);
 
+  const outbreakTrendData = useMemo(() => {
+    return (outbreakTrends || []).map((row) => ({
+      period: `${String(row.month).padStart(2, "0")}/${row.year}`,
+      reportCount: row.report_count || 0,
+      reportedCases: row.reported_cases || 0,
+      reportedDeaths: row.reported_deaths || 0,
+    }));
+  }, [outbreakTrends]);
+
+  const outbreakDiseaseShare = useMemo(() => {
+    const rows = selectedDisease
+      ? (outbreakLocations || []).slice(0, 6).map((row) => ({ name: row.location_text, value: row.report_count || 0 }))
+      : (outbreakDiseases || []).slice(0, 6).map((row) => ({ name: row.disease, value: row.report_count || 0 }));
+    const known = rows.reduce((sum, row) => sum + row.value, 0);
+    const total = outbreakSummary?.report_count || known;
+    if (total > known) rows.push({ name: "Khác", value: total - known });
+    return rows;
+  }, [selectedDisease, outbreakLocations, outbreakDiseases, outbreakSummary]);
+
+  const outbreakCaseTrend = outbreakTrendData.filter((row) => row.reportedCases || row.reportedDeaths);
+
   return (
     <div style={{ background: PAPER, minHeight: "100vh", fontFamily: sans, color: INK }}>
       <style>{`
@@ -714,6 +764,7 @@ export default function CovidDashboardLive() {
             {[
               { id: "global", label: "Toàn cầu", icon: Globe2 },
               { id: "vietnam", label: "Việt Nam", icon: MapPinned },
+              { id: "outbreaks", label: "WHO Monitor", icon: RadioTower },
               { id: "etl", label: "Nhật ký ETL", icon: Activity },
             ].map(({ id, label, icon: Icon }) => (
               <button
@@ -949,6 +1000,141 @@ export default function CovidDashboardLive() {
                   <span style={{ textAlign: "right", fontFamily: mono, color: CORAL }}>{p.doses_per_100 ?? "—"}</span>
                 </div>
               ))}
+            </section>
+          </>
+        )}
+
+        {!loading && !error && tab === "outbreaks" && (
+          <>
+            <section style={{ background: CARD, border: `1px solid ${LINE}`, padding: 24, marginBottom: 24 }}>
+              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 18, flexWrap: "wrap" }}>
+                <div>
+                  <p style={{ fontFamily: mono, fontSize: 10.5, letterSpacing: "0.08em", textTransform: "uppercase", color: TEAL, margin: "0 0 6px" }}>
+                    WHO Disease Outbreak News
+                  </p>
+                  <h2 style={{ fontFamily: serif, fontSize: 20, fontWeight: 600, margin: 0 }}>Giám sát cảnh báo dịch bệnh hiện hành</h2>
+                  <p style={{ maxWidth: 660, margin: "8px 0 0", fontSize: 13, color: MUTED, lineHeight: 1.55 }}>
+                    Nguồn dữ liệu chính thức từ WHO, cập nhật theo các bản tin outbreak. Tab này chứng minh pipeline có thể mở rộng sang nguồn dữ liệu đang tiếp tục phát sinh, không chỉ dashboard COVID lịch sử.
+                  </p>
+                </div>
+                <label style={{ display: "grid", gap: 6, minWidth: 250 }}>
+                  <span style={{ fontFamily: mono, fontSize: 10.5, color: MUTED, textTransform: "uppercase" }}>Lọc theo dịch bệnh</span>
+                  <select
+                    value={selectedDisease}
+                    onChange={(e) => setSelectedDisease(e.target.value)}
+                    style={{ border: `1px solid ${LINE}`, background: PAPER, padding: "9px 10px", fontFamily: sans, fontSize: 13, color: INK, outline: "none" }}
+                  >
+                    <option value="">Tất cả dịch bệnh</option>
+                    {(outbreakDiseases || []).map((row) => (
+                      <option key={row.disease} value={row.disease}>
+                        {row.disease} ({row.report_count})
+                      </option>
+                    ))}
+                  </select>
+                </label>
+              </div>
+            </section>
+
+            <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(170px, 1fr))", gap: 1, background: LINE, marginBottom: 24 }}>
+              <StatCard label="Bản tin WHO" value={formatNumber(outbreakSummary?.report_count)} />
+              <StatCard label="Dịch bệnh theo dõi" value={formatNumber(outbreakSummary?.disease_count)} accent={TEAL} />
+              <StatCard label="Khu vực/quốc gia" value={formatNumber(outbreakSummary?.location_count)} accent={AMBER} />
+              <StatCard label="Ca được trích xuất" value={formatNumber(outbreakSummary?.reported_cases)} accent={TEAL} />
+              <StatCard label="Tử vong được trích xuất" value={formatNumber(outbreakSummary?.reported_deaths)} accent={CORAL} />
+              <StatCard label="Cập nhật mới nhất" value={formatDateOnly(outbreakSummary?.latest_report_date)} />
+            </div>
+
+            <div style={{ display: "grid", gridTemplateColumns: "1.35fr 0.85fr", gap: 20, marginBottom: 24 }}>
+              <section style={{ background: CARD, border: `1px solid ${LINE}`, padding: 24 }}>
+                <SectionTitle>Số bản tin WHO theo thời gian</SectionTitle>
+                <ResponsiveContainer width="100%" height={300}>
+                  <LineChart data={outbreakTrendData} margin={{ top: 4, right: 14, left: -8, bottom: 0 }}>
+                    <CartesianGrid stroke={LINE} vertical={false} />
+                    <XAxis dataKey="period" tick={{ fontFamily: "IBM Plex Mono", fontSize: 10, fill: MUTED }} axisLine={{ stroke: LINE }} tickLine={false} interval={Math.ceil(outbreakTrendData.length / 10)} />
+                    <YAxis domain={[0, "auto"]} tick={{ fontFamily: "IBM Plex Mono", fontSize: 10, fill: MUTED }} axisLine={false} tickLine={false} tickFormatter={formatNumber} width={50} />
+                    <Tooltip content={<CustomTooltip unit=" bản tin" />} />
+                    <Line type="monotone" dataKey="reportCount" stroke={TEAL} strokeWidth={2.4} dot={false} activeDot={{ r: 4 }} />
+                  </LineChart>
+                </ResponsiveContainer>
+              </section>
+
+              <section style={{ background: CARD, border: `1px solid ${LINE}`, padding: 24 }}>
+                <SectionTitle>{selectedDisease ? "Tỷ trọng theo khu vực" : "Tỷ trọng theo dịch bệnh"}</SectionTitle>
+                <ResponsiveContainer width="100%" height={260}>
+                  <PieChart>
+                    <Pie data={outbreakDiseaseShare} dataKey="value" nameKey="name" innerRadius={52} outerRadius={84} paddingAngle={2}>
+                      {outbreakDiseaseShare.map((_, i) => (
+                        <Cell key={i} fill={[TEAL, AMBER, CORAL, "#4B9B84", "#D58A45", "#8A8174", "#C7C5B8"][i % 7]} />
+                      ))}
+                    </Pie>
+                    <Tooltip content={<CustomTooltip unit=" bản tin" />} />
+                    <Legend wrapperStyle={{ fontFamily: sans, fontSize: 11 }} />
+                  </PieChart>
+                </ResponsiveContainer>
+              </section>
+            </div>
+
+            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 20, marginBottom: 24 }}>
+              <section style={{ background: CARD, border: `1px solid ${LINE}`, padding: 24 }}>
+                <SectionTitle>Top khu vực/quốc gia được WHO nhắc tới</SectionTitle>
+                <ResponsiveContainer width="100%" height={280}>
+                  <BarChart data={outbreakLocations || []} layout="vertical" margin={{ left: 12, right: 4 }}>
+                    <CartesianGrid stroke={LINE} horizontal={false} />
+                    <XAxis type="number" tick={{ fontFamily: "IBM Plex Mono", fontSize: 10, fill: MUTED }} axisLine={false} tickLine={false} />
+                    <YAxis type="category" dataKey="location_text" tick={{ fontFamily: "Inter", fontSize: 11, fill: INK }} axisLine={false} tickLine={false} width={118} />
+                    <Tooltip content={<CustomTooltip unit=" bản tin" />} />
+                    <Bar dataKey="report_count" fill={AMBER} radius={[0, 3, 3, 0]} />
+                  </BarChart>
+                </ResponsiveContainer>
+              </section>
+
+              <section style={{ background: CARD, border: `1px solid ${LINE}`, padding: 24 }}>
+                <SectionTitle>Số ca/tử vong trích xuất từ bản tin</SectionTitle>
+                {outbreakCaseTrend.length ? (
+                  <ResponsiveContainer width="100%" height={280}>
+                    <BarChart data={outbreakCaseTrend} margin={{ top: 4, right: 12, left: -8, bottom: 0 }}>
+                      <CartesianGrid stroke={LINE} vertical={false} />
+                      <XAxis dataKey="period" tick={{ fontFamily: "IBM Plex Mono", fontSize: 10, fill: MUTED }} axisLine={{ stroke: LINE }} tickLine={false} interval={Math.ceil(outbreakCaseTrend.length / 8)} />
+                      <YAxis domain={[0, "auto"]} tick={{ fontFamily: "IBM Plex Mono", fontSize: 10, fill: MUTED }} axisLine={false} tickLine={false} tickFormatter={formatNumber} width={52} />
+                      <Tooltip content={<CustomTooltip />} />
+                      <Legend wrapperStyle={{ fontFamily: sans, fontSize: 11 }} />
+                      <Bar dataKey="reportedCases" name="Ca bệnh" fill={TEAL} radius={[3, 3, 0, 0]} />
+                      <Bar dataKey="reportedDeaths" name="Tử vong" fill={CORAL} radius={[3, 3, 0, 0]} />
+                    </BarChart>
+                  </ResponsiveContainer>
+                ) : (
+                  <p style={{ color: MUTED, fontSize: 13, lineHeight: 1.55, margin: 0 }}>
+                    Một số bản tin WHO chỉ là cảnh báo/tình hình dịch và không luôn có bảng số ca chuẩn. Khi nội dung có số ca hoặc tử vong, pipeline sẽ tự trích xuất để đưa vào biểu đồ này.
+                  </p>
+                )}
+              </section>
+            </div>
+
+            <section style={{ background: CARD, border: `1px solid ${LINE}`, padding: 24 }}>
+              <SectionTitle note="raw_who_outbreak_news">Bản tin WHO mới nhất</SectionTitle>
+              <div style={{ display: "grid", gap: 12 }}>
+                {(outbreakLatest || []).map((item, i) => (
+                  <a
+                    key={`${item.title}-${i}`}
+                    href={item.source_url}
+                    target="_blank"
+                    rel="noreferrer"
+                    style={{ display: "grid", gridTemplateColumns: "110px 1fr 130px", gap: 14, alignItems: "start", textDecoration: "none", color: INK, borderBottom: `1px solid ${LINE}`, paddingBottom: 12 }}
+                  >
+                    <span style={{ fontFamily: mono, fontSize: 11, color: MUTED }}>{formatDateOnly(item.publication_date)}</span>
+                    <span>
+                      <strong style={{ display: "block", fontSize: 13.5, marginBottom: 3 }}>{item.title}</strong>
+                      <span style={{ display: "block", fontSize: 12, color: MUTED, lineHeight: 1.45 }}>{item.location_text}</span>
+                    </span>
+                    <span style={{ fontFamily: mono, fontSize: 11, color: TEAL, textAlign: "right" }}>{item.disease}</span>
+                  </a>
+                ))}
+                {!outbreakLatest?.length && (
+                  <p style={{ color: MUTED, fontSize: 13, padding: "20px 0", textAlign: "center" }}>
+                    Chưa có dữ liệu WHO. Hãy chạy `python who_outbreak_load.py` để nạp nguồn Disease Outbreak News.
+                  </p>
+                )}
+              </div>
             </section>
           </>
         )}

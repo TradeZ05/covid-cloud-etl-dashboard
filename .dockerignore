@@ -6,4 +6,7 @@ __pycache__/
 .mysql_password
 covid-frontend/node_modules/
 covid-frontend/dist/
-data/raw/owid-covid-data.csv
+covid-frontend/
+data/raw/
+docs/
+tools/
