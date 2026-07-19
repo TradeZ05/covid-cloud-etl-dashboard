@@ -8,6 +8,3 @@ __pycache__/
 covid-frontend/dist/
 covid-frontend/node_modules/
 data/raw/owid-covid-data.csv
-deploy/*.zip
-docs/~$*.docx
-.agents/

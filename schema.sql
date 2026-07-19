@@ -183,27 +183,6 @@ CREATE TABLE agg_vn_wikipedia_province_cases (
     last_updated TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
 ) ENGINE=InnoDB;
 
--- WHO DISEASE OUTBREAK NEWS (nguồn chính thống, cập nhật cảnh báo dịch bệnh)
-CREATE TABLE raw_who_outbreak_news (
-    id BIGINT AUTO_INCREMENT PRIMARY KEY,
-    who_id VARCHAR(80) UNIQUE,
-    title VARCHAR(500),
-    disease VARCHAR(120),
-    location_text VARCHAR(255),
-    publication_date DATE,
-    year INT,
-    month INT,
-    reported_cases BIGINT,
-    reported_deaths BIGINT,
-    case_fatality_rate DECIMAL(8,2),
-    source_url VARCHAR(500),
-    summary TEXT,
-    overview_text MEDIUMTEXT,
-    ingested_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-    KEY idx_who_disease_date (disease, publication_date),
-    KEY idx_who_publication_date (publication_date)
-) ENGINE=InnoDB;
-
 CREATE TABLE etl_job_log (
     job_id INT AUTO_INCREMENT PRIMARY KEY,
     job_name VARCHAR(100) NOT NULL,
