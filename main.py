@@ -121,6 +121,11 @@ def root():
             "/api/vietnam/cases/summary",
             "/api/vietnam/cases/trends",
             "/api/vietnam/cases/provinces",
+            "/api/outbreaks/diseases",
+            "/api/outbreaks/summary",
+            "/api/outbreaks/trends",
+            "/api/outbreaks/locations",
+            "/api/outbreaks/latest",
             "/api/etl/jobs",
             "/api/assistant/health",
         ],
@@ -310,6 +315,119 @@ def vietnam_cases_provinces(limit: int = Query(default=15, ge=1, le=100)):
         LIMIT %s
         """,
         (limit,),
+    )
+
+
+@app.get("/api/outbreaks/diseases")
+def outbreak_diseases():
+    return run_query(
+        """
+        SELECT
+            disease,
+            COUNT(*) AS report_count,
+            MAX(publication_date) AS latest_date
+        FROM raw_who_outbreak_news
+        GROUP BY disease
+        ORDER BY report_count DESC, disease ASC
+        """
+    )
+
+
+@app.get("/api/outbreaks/summary")
+def outbreak_summary(disease: str | None = Query(default=None)):
+    where = "WHERE disease = %s" if disease else ""
+    params = (disease,) if disease else ()
+    rows = run_query(
+        f"""
+        SELECT
+            COUNT(*) AS report_count,
+            COUNT(DISTINCT location_text) AS location_count,
+            COUNT(DISTINCT disease) AS disease_count,
+            SUM(reported_cases) AS reported_cases,
+            SUM(reported_deaths) AS reported_deaths,
+            MIN(publication_date) AS first_report_date,
+            MAX(publication_date) AS latest_report_date,
+            MAX(ingested_at) AS last_ingested_at
+        FROM raw_who_outbreak_news
+        {where}
+        """,
+        params,
+    )
+    return rows[0] if rows else {}
+
+
+@app.get("/api/outbreaks/trends")
+def outbreak_trends(disease: str | None = Query(default=None)):
+    where = "WHERE disease = %s" if disease else ""
+    params = (disease,) if disease else ()
+    return run_query(
+        f"""
+        SELECT
+            year,
+            month,
+            STR_TO_DATE(CONCAT(year, '-', LPAD(month, 2, '0'), '-01'), '%%Y-%%m-%%d') AS period,
+            COUNT(*) AS report_count,
+            SUM(reported_cases) AS reported_cases,
+            SUM(reported_deaths) AS reported_deaths
+        FROM raw_who_outbreak_news
+        {where}
+        GROUP BY year, month
+        ORDER BY year ASC, month ASC
+        """,
+        params,
+    )
+
+
+@app.get("/api/outbreaks/locations")
+def outbreak_locations(
+    disease: str | None = Query(default=None),
+    limit: int = Query(default=10, ge=1, le=50),
+):
+    where = "WHERE disease = %s" if disease else ""
+    params = (disease, limit) if disease else (limit,)
+    return run_query(
+        f"""
+        SELECT
+            location_text,
+            COUNT(*) AS report_count,
+            SUM(reported_cases) AS reported_cases,
+            SUM(reported_deaths) AS reported_deaths,
+            MAX(publication_date) AS latest_date
+        FROM raw_who_outbreak_news
+        {where}
+        GROUP BY location_text
+        ORDER BY report_count DESC, latest_date DESC
+        LIMIT %s
+        """,
+        params,
+    )
+
+
+@app.get("/api/outbreaks/latest")
+def outbreak_latest(
+    disease: str | None = Query(default=None),
+    limit: int = Query(default=8, ge=1, le=50),
+):
+    where = "WHERE disease = %s" if disease else ""
+    params = (disease, limit) if disease else (limit,)
+    return run_query(
+        f"""
+        SELECT
+            title,
+            disease,
+            location_text,
+            publication_date,
+            reported_cases,
+            reported_deaths,
+            case_fatality_rate,
+            source_url,
+            summary
+        FROM raw_who_outbreak_news
+        {where}
+        ORDER BY publication_date DESC
+        LIMIT %s
+        """,
+        params,
     )
 
 
